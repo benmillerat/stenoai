@@ -2110,6 +2110,19 @@ function install({ ipcMain }) {
       return { success: true, audio_base64: MINIMAL_WAV_BASE64 };
     },
 
+    // The whole recording for the speaker video player. Audio-only unless
+    // STENOAI_E2E_SPEAKER_RECORDING_VIDEO=1. T1 has no steno-media://
+    // protocol behind the url, so the video itself never loads here; the
+    // spec decides whether that load error reaches the player.
+    'get-speaker-recording-media': async (_event, meetingStem) => {
+      if (!seedSpeakers) return { success: false, error: 'no recording on disk' };
+      return {
+        success: true,
+        url: `steno-media://recording/${encodeURIComponent(meetingStem)}`,
+        is_video: process.env.STENOAI_E2E_SPEAKER_RECORDING_VIDEO === '1',
+      };
+    },
+
     'get-person-sample-audio': async (_event, personId) => {
       const profile = speakerState.personProfiles.find((person) => person.person_id === personId);
       if (!profile?.sample_available) {

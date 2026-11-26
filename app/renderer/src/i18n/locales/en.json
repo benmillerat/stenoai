@@ -1285,5 +1285,11 @@
   "home.start.chat.action": "Open Chat",
   "home.start.cookbooks.title": "Pick a cookbook",
   "home.start.cookbooks.body": "Choose the kind of notes Steno writes, from 1:1s to interviews.",
-  "home.start.cookbooks.action": "Browse cookbooks"
+  "home.start.cookbooks.action": "Browse cookbooks",
+  "speakerVideo.title": "Who is speaking?",
+  "speakerVideo.description": "Starts at {{time}} and pauses where the excerpt ends. Press Play to keep watching.",
+  "speakerVideo.play": "Play",
+  "speakerVideo.pause": "Pause",
+  "speakerVideo.stop": "Stop and close",
+  "speakerVideo.position": "Playback position"
 }

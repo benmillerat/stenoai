@@ -156,6 +156,15 @@ export function useGetSpeakerSampleAudio() {
   });
 }
 
+/** Where the meeting's whole recording can be streamed from, and whether it
+ * is a video. Returns the raw Result rather than unwrapping it: a failure only
+ * means "no video to show", and the caller then plays the audio clip as before. */
+export function useGetRecordingMedia() {
+  return useMutation({
+    mutationFn: async (meetingStem: string) => ipc().speakers.getRecordingMedia(meetingStem),
+  });
+}
+
 /** Fetch one representative clip for a known person on demand.
  *
  * The backend resolves private meeting/cluster provenance at click time and

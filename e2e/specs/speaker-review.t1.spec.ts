@@ -878,3 +878,106 @@ test('the Change picker offers people already assigned in this meeting first', a
   expect(names[0]).toContain('Person Alpha');
   expect(names[0]).toContain('here');
 });
+
+// T1 has no steno-media:// protocol, so the player's <video> can never load
+// its source here. This keeps that expected load error from reaching the
+// player, so the dialog itself can be driven; the fallback test leaves it on.
+async function ignoreVideoLoadErrors(page: Page) {
+  await page.evaluate(() => {
+    document.addEventListener(
+      'error',
+      (event) => {
+        if (event.target instanceof HTMLVideoElement) event.stopImmediatePropagation();
+      },
+      true,
+    );
+  });
+}
+
+const VIDEO_RECORDING_ENV = {
+  STENOAI_E2E_SEED_SPEAKER_SUGGESTIONS: '1',
+  STENOAI_E2E_SPEAKER_RECORDING_VIDEO: '1',
+};
+
+test('a video recording opens the player at the excerpt instead of an audio clip', async ({
+  launchApp,
+}) => {
+  const { page } = await launchApp({ mockIpc: true, env: VIDEO_RECORDING_ENV });
+  await openDetail(page);
+  await ignoreVideoLoadErrors(page);
+
+  // An excerpt plays its OWN moment: the second one starts at 400 s.
+  await page.getByTestId('speaker-expand-mic:SPEAKER_0').click();
+  await page.getByTestId('speaker-play-mic:SPEAKER_0-1').click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const video = dialog.getByTestId('speaker-video');
+  await expect(video).toHaveAttribute('src', 'steno-media://recording/speaker-review-mtg');
+  await expect(video).not.toHaveAttribute('controls');
+  expect(await video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBe(400);
+  await expect(dialog.getByTestId('speaker-video-time')).toHaveText(/^06:40 \//);
+  // It starts playing on open, so the toggle offers Pause (Play once paused).
+  await expect(dialog.getByTestId('speaker-video-toggle')).toHaveAttribute(
+    'aria-label', /^(Pause|Play)$/,
+  );
+  for (const name of ['Stop and close', 'Playback position']) {
+    await expect(dialog.getByLabel(name, { exact: true })).toBeVisible();
+  }
+  // No inline audio clip started underneath the player.
+  await expect(page.getByTestId('speaker-play-mic:SPEAKER_0-1')).toHaveAttribute(
+    'aria-label', 'Play excerpt at 06:40',
+  );
+});
+
+test('the collapsed row opens the player at the quote it shows, and Stop closes it', async ({
+  launchApp,
+}) => {
+  const { page } = await launchApp({ mockIpc: true, env: VIDEO_RECORDING_ENV });
+  await openDetail(page);
+  await ignoreVideoLoadErrors(page);
+
+  await page.getByTestId('speaker-play-mic:SPEAKER_0').click();
+  const dialog = page.getByRole('dialog');
+  // sample_text "I think we should ship this on Friday" is the 130 s excerpt.
+  await expect(dialog.getByTestId('speaker-video-time')).toHaveText(/^02:10 \//);
+
+  await dialog.getByRole('button', { name: 'Stop and close' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByTestId('speaker-video')).toHaveCount(0);
+});
+
+test('Escape closes the video player', async ({ launchApp }) => {
+  const { page } = await launchApp({ mockIpc: true, env: VIDEO_RECORDING_ENV });
+  await openDetail(page);
+  await ignoreVideoLoadErrors(page);
+
+  await page.getByTestId('speaker-play-mic:SPEAKER_0').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByTestId('speaker-review-panel')).toBeVisible();
+});
+
+test('a video that cannot load falls back to the audio clip', async ({ launchApp }) => {
+  const { page } = await launchApp({ mockIpc: true, env: VIDEO_RECORDING_ENV });
+  await openDetail(page);
+
+  const play = page.getByTestId('speaker-play-mic:SPEAKER_0');
+  await play.click();
+  await expect(play).toHaveAttribute('aria-label', 'Stop sample');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('an audio-only recording still plays inline with no player', async ({ launchApp }) => {
+  const { page } = await launchApp({
+    mockIpc: true,
+    env: { STENOAI_E2E_SEED_SPEAKER_SUGGESTIONS: '1' },
+  });
+  await openDetail(page);
+
+  const play = page.getByTestId('speaker-play-mic:SPEAKER_0');
+  await play.click();
+  await expect(play).toHaveAttribute('aria-label', 'Stop sample');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

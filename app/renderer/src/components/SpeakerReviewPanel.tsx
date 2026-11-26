@@ -11,12 +11,14 @@ import {
   usePersonProfiles,
   useConfirmSpeaker,
   useGetSpeakerSampleAudio,
+  useGetRecordingMedia,
   useMarkSpeakerCluster,
   useSetClusterReviewState,
   meetingStemFromSummaryFile,
 } from '@/hooks/useSpeakerSuggestions';
 import { useBlobAudioPlayback } from '@/hooks/useBlobAudioPlayback';
-import type { SpeakerSuggestion, StaleAssignment } from '@/lib/ipc';
+import type { SpeakerSample, SpeakerSuggestion, StaleAssignment } from '@/lib/ipc';
+import { SpeakerVideoDialog, formatOffset } from '@/components/SpeakerVideoDialog';
 
 interface SpeakerReviewPanelProps {
   summaryFile: string;
@@ -237,17 +239,6 @@ function identificationHint(channel: string, suggestion: SpeakerSuggestion): str
   return parts.join(' · ');
 }
 
-/** Seconds -> "MM:SS" / "H:MM:SS", matching the [MM:SS] markers in the
- * saved transcript (src.transcriber._format_timestamp) so an excerpt's
- * timestamp can be found by eye in the transcript above. */
-function formatOffset(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const s = String(total % 60).padStart(2, '0');
-  const m = Math.floor(total / 60) % 60;
-  const h = Math.floor(total / 3600);
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${String(m).padStart(2, '0')}:${s}`;
-}
-
 interface PlaySampleButtonProps {
   meetingStem: string;
   channel: string;
@@ -256,6 +247,9 @@ interface PlaySampleButtonProps {
   /** Which of the row's `samples` to play. Omitted plays the cluster's
    * longest turn -- the collapsed row's single button. */
   segmentIndex?: number;
+  /** The moment a video recording opens at. Omitted (or a collapsed range)
+   * plays the audio clip even when the recording is a video. */
+  videoSample?: SpeakerSample;
   disabled?: boolean;
   label?: string;
 }
@@ -266,9 +260,14 @@ interface PlaySampleButtonProps {
  * a mutation (not cached) since nothing needs to stay fresh in the
  * background for a clip a human explicitly triggers. */
 function PlaySampleButton({
-  meetingStem, channel, diarizationSpeakerId, expectedRunId, segmentIndex, disabled, label,
+  meetingStem, channel, diarizationSpeakerId, expectedRunId, segmentIndex, videoSample, disabled,
+  label,
 }: PlaySampleButtonProps) {
   const getSample = useGetSpeakerSampleAudio();
+  const getMedia = useGetRecordingMedia();
+  const [video, setVideo] = React.useState<{ url: string; start: number; end: number } | null>(
+    null,
+  );
   const playbackKey = segmentIndex === undefined ? 'cluster' : `excerpt-${segmentIndex}`;
   const playback = useBlobAudioPlayback(async () => {
     const result = await getSample.mutateAsync({
@@ -277,6 +276,20 @@ function PlaySampleButton({
     return result.audio_base64;
   });
   const playing = playback.playingKey === playbackKey;
+
+  // A video recording opens the player at this moment, so the speaker can be
+  // SEEN. Anything else -- audio-only, no usable moment, the lookup failing --
+  // keeps the inline audio clip exactly as before.
+  const onPlay = async () => {
+    if (!playing && videoSample && videoSample.end > videoSample.start) {
+      const media = await getMedia.mutateAsync(meetingStem).catch(() => null);
+      if (media?.success && media.is_video) {
+        setVideo({ url: media.url, start: videoSample.start, end: videoSample.end });
+        return;
+      }
+    }
+    void playback.toggle(playbackKey);
+  };
 
   const title = label ?? (playing ? 'Stop sample' : 'Play sample');
   // Distinct testid per excerpt: the whole point of the expanded list is
@@ -293,11 +306,11 @@ function PlaySampleButton({
         variant="ghost"
         aria-label={playing ? 'Stop sample' : title}
         title={playing ? 'Stop sample' : title}
-        disabled={disabled || playback.pendingKey !== null}
-        onClick={() => void playback.toggle(playbackKey)}
+        disabled={disabled || playback.pendingKey !== null || getMedia.isPending}
+        onClick={() => void onPlay()}
         data-testid={testId}
       >
-        {playback.pendingKey !== null ? (
+        {playback.pendingKey !== null || getMedia.isPending ? (
           <Loader2 className="size-[13px] animate-spin" />
         ) : playing ? (
           <Square className="size-[13px]" />
@@ -309,6 +322,16 @@ function PlaySampleButton({
         <span role="alert" className="text-[12px]" style={{ color: 'var(--danger)' }}>
           Could not play this sample. Try again.
         </span>
+      )}
+      {video && (
+        <SpeakerVideoDialog
+          {...video}
+          onClose={() => setVideo(null)}
+          onError={() => {
+            setVideo(null);
+            void playback.toggle(playbackKey);
+          }}
+        />
       )}
     </span>
   );
@@ -740,6 +763,13 @@ export function SpeakerReviewPanel({
                     channel={row.channel}
                     diarizationSpeakerId={row.diarizationSpeakerId}
                     expectedRunId={diarizationRunId}
+                    videoSample={
+                      samples.find(
+                        (s) => s.text !== null
+                          && s.text === row.suggestion.sample_text
+                          && s.end > s.start,
+                      ) ?? samples.find((s) => s.end > s.start)
+                    }
                     disabled={anyConfirmPending}
                   />
                 )}
@@ -993,6 +1023,7 @@ export function SpeakerReviewPanel({
                           diarizationSpeakerId={row.diarizationSpeakerId}
                           expectedRunId={diarizationRunId}
                           segmentIndex={index}
+                          videoSample={sample}
                           disabled={anyConfirmPending || sample.end <= sample.start}
                           label={
                             sample.end <= sample.start

@@ -696,6 +696,9 @@ export type ConfirmSpeakerResponse = Result<{
 // (media-src 'self' blob:) has no file: allowance, so a raw path could
 // never actually play -- the renderer builds a blob: URL from these bytes.
 export type GetSpeakerSampleAudioResponse = Result<{ audio_base64: string }>;
+/** The meeting's whole recording, streamed by main over `steno-media://`
+ *  (seekable: Range -> 206). `is_video` is true for an mp4/mov recording. */
+export type GetRecordingMediaResponse = Result<{ url: string; is_video: boolean }>;
 
 export interface Report {
   id: string;
@@ -1589,6 +1592,7 @@ export interface StenoaiBridge {
       GetSpeakerSampleAudioResponse
     >;
     getPersonSampleAudio: RequestFn<[id: string], GetSpeakerSampleAudioResponse>;
+    getRecordingMedia: RequestFn<[meetingStem: string], GetRecordingMediaResponse>;
     markCluster: RequestFn<[params: MarkSpeakerClusterParams], MarkSpeakerClusterResponse>;
     setClusterReviewState: RequestFn<
       [params: SetClusterReviewStateParams],
