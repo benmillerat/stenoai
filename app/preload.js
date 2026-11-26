@@ -243,6 +243,7 @@ const stenoai = {
   },
 
   speakers: {
+    getRecordingMedia: (meetingStem) => invoke('get-speaker-recording-media', meetingStem),
     listProfiles: () => invoke('list-person-profiles'),
     suggestForMeeting: (meetingStem) => invoke('suggest-speakers', meetingStem),
     confirm: (params) => invoke('confirm-speaker', params),

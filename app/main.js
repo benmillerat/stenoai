@@ -1,4 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences, globalShortcut, Tray, Menu, nativeImage, powerMonitor, net, session, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences, globalShortcut, Tray, Menu, nativeImage, powerMonitor, net, session, clipboard, protocol } = require('electron');
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'steno-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+]);
 
 // safeStorage is accessed lazily via getSafeStorage(), NOT destructured from the
 // require above. On macOS, merely retrieving the safeStorage binding at load
@@ -73,6 +77,7 @@ const { registerMeetingTransferIpc, copyRegularFile } = require('./meeting-trans
 const { STORE_DOCUMENT_LIMIT } = require('./meeting-transfer-store');
 const { registerPersonSampleIpc } = require('./person-sample-ipc');
 const { registerSpeakerIpc } = require('./speaker-ipc');
+const { createSpeakerMediaProtocol } = require('./speaker-media-protocol');
 const { registerObsidianSync } = require('./obsidian-sync');
 const { registerObsidianIpc } = require('./obsidian-ipc');
 const { registerStenoMcpIpc } = require('./steno-mcp-ipc');
@@ -2242,6 +2247,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    protocol.handle('steno-media', speakerMedia.handle);
     // Resolve whether this launch was an OS login-item auto-launch BEFORE the
     // app_opened event and the first window show below. macOS reports it via
     // wasOpenedAtLogin (the deprecated openAsHidden no longer works on 13+);
@@ -9956,7 +9962,15 @@ ipcMain.handle('pull-parakeet-model', async (event, modelId) => {
 // tray) deliberately stay in main.js until that domain's own extraction.
 registerSettingsIpc({ ipcMain, runPythonScript, sendDebugLog });
 registerPersonSampleIpc({ ipcMain, runPythonScript });
-registerSpeakerIpc({ ipcMain, runPythonScript, parsePythonFailureJson });
+const speakerMedia = createSpeakerMediaProtocol({
+  // The renderer can request media before the async storage-path cache loads.
+  getRecordingsDir: () => path.join(
+    process.env.STENOAI_USER_DATA_DIR || readConfigFile(configJsonPath())?.storage_path || getUserDataDir(),
+    'recordings',
+  ),
+  extensions: IMPORT_AUDIO_EXTENSIONS,
+});
+registerSpeakerIpc({ ipcMain, runPythonScript, parsePythonFailureJson, getRecordingMedia: speakerMedia.getRecordingMedia });
 
 // Fired by the renderer's silence detector. The renderer has already
 // asked main to stop the recording via pause/stop; this just surfaces

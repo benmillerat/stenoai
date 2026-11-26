@@ -87,7 +87,15 @@ function errorResponse(error) {
   return { success: false, error: error instanceof TypeError ? error.message : 'Speaker operation failed.' };
 }
 
-function registerSpeakerIpc({ ipcMain, runPythonScript, parsePythonFailureJson }) {
+function registerSpeakerIpc({ ipcMain, runPythonScript, parsePythonFailureJson, getRecordingMedia }) {
+  ipcMain.handle('get-speaker-recording-media', async (_event, meetingStem) => {
+    try {
+      return await getRecordingMedia(validateMeetingStem(meetingStem));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
   ipcMain.handle('list-person-profiles', async () => {
     try {
       const out = await runPythonScript('simple_recorder.py', ['list-person-profiles']);
