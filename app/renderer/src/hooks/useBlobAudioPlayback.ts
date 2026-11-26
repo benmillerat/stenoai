@@ -27,6 +27,12 @@ function releaseResource(resource: AudioResource | null): void {
   URL.revokeObjectURL(resource.objectUrl);
 }
 
+/** Stops whichever voice sample is playing or still loading, in any
+ * component. For surfaces that start other media, such as the video player. */
+export function stopActiveBlobPlayback(): void {
+  activePlayback?.stop();
+}
+
 /** One fetch-on-click audio lifecycle shared by every voice-sample surface. */
 export function useBlobAudioPlayback<Key extends string>(
   loadBase64: (key: Key) => Promise<string>,

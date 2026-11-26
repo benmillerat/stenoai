@@ -981,3 +981,92 @@ test('an audio-only recording still plays inline with no player', async ({ launc
   await expect(play).toHaveAttribute('aria-label', 'Stop sample');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+// Records every play() so a spec can check which clips are still sounding,
+// and lets a spec switch the video load-error swallowing on mid-test.
+async function trackMedia(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __audios: HTMLAudioElement[];
+      __videoPlays: number;
+      __swallowVideoErrors: boolean;
+    };
+    w.__audios = [];
+    w.__videoPlays = 0;
+    w.__swallowVideoErrors = false;
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      if (this instanceof HTMLAudioElement) w.__audios.push(this);
+      else w.__videoPlays += 1;
+      return play.call(this);
+    };
+    document.addEventListener(
+      'error',
+      (event) => {
+        if (w.__swallowVideoErrors && event.target instanceof HTMLVideoElement) {
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
+  });
+}
+
+const sounding = (page: Page) =>
+  page.evaluate(
+    () => (window as unknown as { __audios: HTMLAudioElement[] }).__audios.filter((a) => !a.paused).length,
+  );
+
+test('opening a video stops the audio clip another excerpt fell back to', async ({ launchApp }) => {
+  const { page } = await launchApp({ mockIpc: true, env: VIDEO_RECORDING_ENV });
+  await openDetail(page);
+  await trackMedia(page);
+  await page.getByTestId('speaker-expand-mic:SPEAKER_0').click();
+
+  // Excerpt A: its video fails to load, so it falls back to the audio clip.
+  const a = page.getByTestId('speaker-play-mic:SPEAKER_0-0');
+  await a.click();
+  await expect(a).toHaveAttribute('aria-label', 'Stop sample');
+  expect(await sounding(page)).toBe(1);
+
+  // Excerpt B opens its video: A's clip must not keep talking underneath.
+  await page.evaluate(() => {
+    (window as unknown as { __swallowVideoErrors: boolean }).__swallowVideoErrors = true;
+  });
+  await page.getByTestId('speaker-play-mic:SPEAKER_0-1').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(await sounding(page)).toBe(0);
+  await expect(a).toHaveAttribute('aria-label', 'Play excerpt at 02:10');
+  expect(await page.evaluate(() => (window as unknown as { __videoPlays: number }).__videoPlays))
+    .toBeGreaterThan(0);
+});
+
+test('opening a video cancels an audio clip that is still loading', async ({ launchApp }) => {
+  const { page } = await launchApp({
+    mockIpc: true,
+    env: { ...VIDEO_RECORDING_ENV, STENOAI_E2E_SPEAKER_SAMPLE_DELAY_MS: '1500' },
+  });
+  await openDetail(page);
+  await trackMedia(page);
+  await page.getByTestId('speaker-expand-mic:SPEAKER_0').click();
+
+  // Excerpt A falls back to audio, whose request is held pending.
+  const a = page.getByTestId('speaker-play-mic:SPEAKER_0-0');
+  await a.click();
+  await expect(a).toBeDisabled();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    (window as unknown as { __swallowVideoErrors: boolean }).__swallowVideoErrors = true;
+  });
+  await page.getByTestId('speaker-play-mic:SPEAKER_0-1').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(a).toBeEnabled();
+
+  // Well past the held request: its clip must never start.
+  await page.waitForTimeout(2500);
+  expect(await page.evaluate(() => (window as unknown as { __audios: unknown[] }).__audios.length))
+    .toBe(0);
+  await expect(a).toHaveAttribute('aria-label', 'Play excerpt at 02:10');
+  await expect(page.getByRole('dialog')).toBeVisible();
+});

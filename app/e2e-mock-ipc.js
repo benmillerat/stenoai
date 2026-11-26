@@ -2104,6 +2104,10 @@ function install({ ipcMain }) {
       if (process.env.STENOAI_E2E_SPEAKER_SAMPLE_FAIL === '1') {
         return { success: false, error: 'simulated private backend detail' };
       }
+      // Test-only seam: holds the clip request pending so a spec can act
+      // while it is still loading.
+      const delayMs = Number(process.env.STENOAI_E2E_SPEAKER_SAMPLE_DELAY_MS || 0);
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
       // A real (if silent/empty) minimal 16-bit mono WAV -- so the renderer's
       // blob: URL construction + <audio> playback path is exercised with
       // valid audio data, not just a placeholder string.

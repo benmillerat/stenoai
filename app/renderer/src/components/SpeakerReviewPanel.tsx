@@ -16,7 +16,7 @@ import {
   useSetClusterReviewState,
   meetingStemFromSummaryFile,
 } from '@/hooks/useSpeakerSuggestions';
-import { useBlobAudioPlayback } from '@/hooks/useBlobAudioPlayback';
+import { stopActiveBlobPlayback, useBlobAudioPlayback } from '@/hooks/useBlobAudioPlayback';
 import type { SpeakerSample, SpeakerSuggestion, StaleAssignment } from '@/lib/ipc';
 import { SpeakerVideoDialog, formatOffset } from '@/components/SpeakerVideoDialog';
 
@@ -284,6 +284,9 @@ function PlaySampleButton({
     if (!playing && videoSample && videoSample.end > videoSample.start) {
       const media = await getMedia.mutateAsync(meetingStem).catch(() => null);
       if (media?.success && media.is_video) {
+        // Any clip still playing or loading, from this row or another, would
+        // talk over the video.
+        stopActiveBlobPlayback();
         setVideo({ url: media.url, start: videoSample.start, end: videoSample.end });
         return;
       }
